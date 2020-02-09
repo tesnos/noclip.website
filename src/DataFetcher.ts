@@ -1,6 +1,6 @@
 
 import ArrayBufferSlice from './ArrayBufferSlice';
-import { assert } from './util';
+import { assert, arrayRemove } from './util';
 import { IS_DEVELOPMENT } from './BuildVersion';
 import { ProgressMeter } from './SceneBase';
 
@@ -184,6 +184,7 @@ export class DataFetcher {
     }
 
     public setProgress(): void {
+        console.log('set progress!', this.requests, this.doneRequestCount, this.calcProgress());
         this.progressMeter.setProgress(this.calcProgress());
     }
 
@@ -203,7 +204,7 @@ export class DataFetcher {
         request.ondone = () => {
             this.doneRequestCount++;
             request.destroy();
-            this.requests.splice(this.requests.indexOf(request), 1);
+            arrayRemove(this.requests, request);
             this.pump();
         };
         request.onprogress = () => {
