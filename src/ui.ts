@@ -16,6 +16,7 @@ import "reflect-metadata";
 // @ts-ignore
 import logoURL from './assets/logo.png';
 import { LightweightOverlay } from './AAA_NewUI/LightweightOverlay';
+import { LocationBase } from './AAA_NewUI/SceneBase2';
 
 export const HIGHLIGHT_COLOR = 'rgb(210, 30, 30)';
 export const COOL_BLUE_COLOR = 'rgb(20, 105, 215)';
@@ -973,86 +974,169 @@ export class FloatingPanel implements Widget {
     }
 }
 
-// https://stackoverflow.com/questions/3446170/escape-string-for-use-in-javascript-regex
-function escapeRegExp(S: string): string {
-    return S.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+class ImageSlideshow {
+    public solidImage: HTMLElement;
+    public fadeImage: HTMLElement;
+
+    public elem: HTMLElement;
+
+    public fadeTime: number = 100;
+    public slideTime: number = 500;
+
+    private frameCurr: number = -1;
+    private timer: number | null = null;
+
+    constructor(private imageURLs: string[]) {
+        this.elem = document.createElement('div');
+        this.elem.style.display = 'grid';
+
+        this.solidImage = document.createElement('div');
+        this.solidImage.style.backgroundSize = 'cover';
+        this.solidImage.style.gridArea = '1 / 1 / 1 / 1';
+        this.elem.appendChild(this.solidImage);
+
+        this.fadeImage = document.createElement('div');
+        this.fadeImage.style.backgroundSize = 'cover';
+        this.fadeImage.style.gridArea = '1 / 1 / 1 / 1';
+        this.fadeImage.style.opacity = '0';
+        this.elem.appendChild(this.fadeImage);
+
+        this.setFrame(0);
+    }
+
+    private setImage(image: HTMLElement, url: string): void {
+        image.style.backgroundImage = `url(${url})`;
+    }
+
+    private currentAnimation: Animation | null = null;
+
+    private setFrame(i: number): void {
+        if (this.frameCurr === -1) {
+            this.frameCurr = i;
+            this.setImage(this.solidImage, this.imageURLs[i]);
+            this.fadeImage.style.opacity = '0';
+        } else if (this.frameCurr !== i) {
+            this.setImage(this.solidImage, this.imageURLs[this.frameCurr]);
+
+            this.fadeImage.style.opacity = '0';
+            this.setImage(this.fadeImage, this.imageURLs[i]);
+
+            let start: number = 0;
+            if (this.currentAnimation !== null) {
+                start = this.currentAnimation.currentTime! / this.fadeTime;
+                this.currentAnimation.cancel();
+                this.currentAnimation = null;
+            }
+
+            // By default, animation will revert to the original state at the end, which is exactly what we want.
+            this.currentAnimation = this.fadeImage.animate([
+                { opacity: start, offset: 0 },
+                { opacity: 1, offset: 1 },
+            ], { duration: (1.0 - start) * this.fadeTime });
+            this.currentAnimation.onfinish = () => {
+                this.setImage(this.solidImage, this.imageURLs[i]);
+                this.currentAnimation = null;
+            };
+        }
+
+        this.frameCurr = i;
+    }
+
+    private nextFrame(): void {
+        this.setFrame((this.frameCurr + 1) % this.imageURLs.length);
+    }
+
+    public stop(): void {
+        if (this.timer === null)
+            return;
+        clearInterval(this.timer);
+        this.timer = null;
+        this.setFrame(0);
+    }
+
+    public play(): void {
+        if (this.timer !== null)
+            return;
+        this.timer = setInterval(() => this.nextFrame(), this.slideTime);
+        this.nextFrame();
+    }
 }
 
-function searchRegExps(S: string): RegExp[] {
-    return S.split(/\s+/).filter((n) => n.length).map((str) => new RegExp(`(\\b${escapeRegExp(str)})`, 'i'));
+export interface LocationCardLocation {
+    title: string;
+    screenshotURLs: string[];
+    location: LocationBase;
 }
 
-function matchRegExps(n: RegExp[], S: string): boolean {
-    // Empty list matches everything.
-    if (n.length === 0)
-        return true;
-    return n.every((re) => {
-        return re.test(S);
-    })
+class LocationCard {
+    public elem: HTMLElement;
+
+    private image: ImageSlideshow;
+    private title: HTMLElement;
+
+    constructor(location: LocationCardLocation) {
+        this.elem = document.createElement('div');
+        this.elem.style.display = 'grid';
+        this.elem.style.height = '100px';
+
+        this.image = new ImageSlideshow(location.screenshotURLs);
+        this.image.elem.style.pointerEvents = 'none';
+        this.image.elem.style.gridArea = '1 / 1 / 1 / 1';
+        this.elem.appendChild(this.image.elem);
+
+        this.title = document.createElement('div');
+        this.title.textContent = location.title;
+        this.title.style.gridArea = '1 / 1 / 1 / 1';
+        this.title.style.backgroundColor = 'rgba(0, 0, 0, 0.4)';
+        this.title.style.opacity = '0';
+        this.title.style.cursor = 'pointer';
+        this.title.style.transition = '.1s ease-out';
+        this.title.style.font = '24px "Comic Sans MS"';
+        this.title.style.display = 'grid';
+        this.title.style.justifyContent = 'center';
+        this.title.style.alignItems = 'center';
+        this.title.style.textShadow = '0 4px 8px black';
+        this.title.style.textAlign = 'center';
+        this.title.style.zIndex = '1000';
+        this.elem.appendChild(this.title);
+
+        this.elem.onmouseenter = () => {
+            this.title.style.opacity = '1';
+            this.image.play();
+        };
+        this.elem.onmouseleave = () => {
+            this.title.style.opacity = '0';
+            this.image.stop();
+        };
+    }
 }
 
 class SceneSelect extends Panel {
-    private sceneGroups: (string | Viewer.SceneGroup)[] = [];
-    private sceneDescs: (string | Viewer.SceneDesc)[] = [];
+    public onlocationselected: (location: LocationCardLocation) => void;
 
-    private searchEntry: TextEntry;
-    private sceneGroupList: SingleSelect;
-    private sceneDescList: SingleSelect;
-
-    private selectedSceneGroup: Viewer.SceneGroup;
-    private currentSceneGroup: Viewer.SceneGroup;
-    private currentSceneDesc: Viewer.SceneDesc;
-    private loadProgress: number;
-
-    private currentSearchTokens: RegExp[] = [];
-
-    public onscenedescselected: (sceneGroup: Viewer.SceneGroup, sceneDesc: Viewer.SceneDesc) => void;
+    public cardGrid: HTMLElement;
 
     constructor(public viewer: Viewer.Viewer) {
         super();
         this.setTitle(OPEN_ICON, 'Games');
 
-        this.searchEntry = new TextEntry();
-        this.searchEntry.elem.style.background = 'rgba(0, 0, 0, 1.0)';
-        this.searchEntry.setIcon(SEARCH_ICON);
-        this.searchEntry.setPlaceholder('Search...');
-        this.searchEntry.ontext = (searchString: string) => {
-            this._setSearchString(searchString);
-        };
-        this.contents.appendChild(this.searchEntry.elem);
-
-        this.sceneGroupList = new SingleSelect();
-        this.sceneGroupList.setHeight('400px');
-        this.contents.appendChild(this.sceneGroupList.elem);
-
-        this.sceneDescList = new SingleSelect();
-        this.sceneDescList.setHighlightFlair = false;
-        this.sceneDescList.elem.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
-        this.sceneDescList.elem.style.width = '500px';
-        this.sceneDescList.setHeight('472px');
-        this.extraRack.appendChild(this.sceneDescList.elem);
-
-        this.sceneGroupList.onselectionchange = (i: number) => {
-            this.selectSceneGroup(i);
-        };
-
-        this.sceneDescList.onselectionchange = (i: number) => {
-            this.selectSceneDesc(i);
-        };
+        this.cardGrid = document.createElement('div');
+        this.cardGrid.style.display = 'grid';
+        this.cardGrid.style.gridTemplateColumns = '1fr 1fr';
+        this.contents.appendChild(this.cardGrid);
     }
 
-    protected onKeyDown(e: KeyboardEvent): void {
-        if (e.code === 'ArrowUp' || e.code === 'ArrowDown') {
-            this.sceneGroupList.elem.onkeydown!(e);
-        } else {
-            const textarea = this.searchEntry.textfield.textarea;
-            textarea.focus();
-            textarea.onkeydown!(e);
-        }
+    public setLocations(locations: LocationCardLocation[]): void {
+        setChildren(this.cardGrid, []);
 
-        if (e.defaultPrevented)
-            return;
-        super.onKeyDown(e);
+        for (let i = 0; i < locations.length; i++) {
+            const location = locations[i];
+            const card = new LocationCard(location);
+            card.elem.onclick = () => {
+                this.onlocationselected(location);
+            };
+            this.cardGrid.appendChild(card.elem);
+        }
     }
 
     public expandAndFocus(): void {
@@ -1061,171 +1145,10 @@ class SceneSelect extends Panel {
         this.elem.focus();
     }
 
-    private _setSearchString(str: string): void {
-        this.currentSearchTokens = searchRegExps(str);
-        this.syncVisibility();
-    }
-
-    private syncVisibility(): void {
-        // Start searching!
-        const n = this.currentSearchTokens;
-
-        let lastDescHeaderVisible = false;
-        function matchSceneDesc(item: (string | Viewer.SceneDesc)): boolean {
-            if (typeof item === 'string') {
-                // If this is a header, then all items under the header should match.
-                lastDescHeaderVisible = matchRegExps(n, item);
-                return false;
-            } else {
-                // If header matches, then so do we.
-                if (lastDescHeaderVisible)
-                    return true;
-                return matchRegExps(n, item.name);
-            }
-        }
-
-        let lastGroupHeaderVisible = false;
-        let selectedGroupExplicitlyVisible = false;
-        for (let i = 0; i < this.sceneGroups.length; i++) {
-            const item = this.sceneGroups[i];
-            if (typeof item === 'string') {
-                // If this is a header, then all items under the header should match.
-                lastGroupHeaderVisible = matchRegExps(n, item);
-            } else {
-                let visible = false;
-                let explicitlyInvisible = false;
-
-                explicitlyInvisible = item.sceneDescs.length <= 0 || !!item.hidden;
-                if (!explicitlyInvisible) {
-                    // If header matches, then we are explicitly visible.
-                    if (!visible == lastGroupHeaderVisible)
-                        visible = true;
-
-                    // If name matches, then we are explicitly visible.
-                    if (!visible && matchRegExps(n, item.name))
-                        visible = true;
-
-                    if (item === this.selectedSceneGroup)
-                        selectedGroupExplicitlyVisible = visible;
-
-                    // Now check for any children.
-                    if (!visible) {
-                        lastDescHeaderVisible = false;
-                        visible = item.sceneDescs.some((g) => matchSceneDesc(g));
-                    }
-                }
-
-                this.sceneGroupList.setItemVisible(i, visible);
-            }
-        }
-
-        lastDescHeaderVisible = false;
-        for (let i = 0; i < this.sceneDescs.length; i++) {
-            let visible;
-            if (!visible && selectedGroupExplicitlyVisible)
-                visible = true;
-            if (!visible)
-                visible = matchSceneDesc(this.sceneDescs[i]);
-            this.sceneDescList.setItemVisible(i, visible);
-        }
-
-        this.sceneGroupList.computeHeaderVisibility();
-        this.sceneDescList.computeHeaderVisibility();
-    }
-
-    public setCurrentDesc(sceneGroup: Viewer.SceneGroup, sceneDesc: Viewer.SceneDesc) {
-        this.selectedSceneGroup = sceneGroup;
-        this.currentSceneGroup = sceneGroup;
-        this.currentSceneDesc = sceneDesc;
-
-        const index = this.sceneGroups.indexOf(this.currentSceneGroup);
-        this.sceneGroupList.setHighlighted(index);
-
-        this.syncSceneDescs();
-    }
-
-    public setSceneGroups(sceneGroups: (string | Viewer.SceneGroup)[]) {
-        this.sceneGroups = sceneGroups;
-        this.sceneGroupList.setItems(sceneGroups.map((g): ScrollSelectItem => {
-            if (typeof g === 'string')
-                return { type: ScrollSelectItemType.Header, html: g };
-            else
-                return { type: ScrollSelectItemType.Selectable, name: g.name };
-        }));
-        this.syncSceneDescs();
-    }
-
     public setProgress(pct: number): void {
-        this.loadProgress = pct;
-        this.syncFlairs();
-        this.syncHeaderStyle();
-    }
-
-    private selectSceneDesc(i: number) {
-        this.onscenedescselected(this.selectedSceneGroup, this.sceneDescs[i] as Viewer.SceneDesc);
-    }
-
-    private getLoadingGradient(rightColor: string) {
-        const pct = `${Math.round(this.loadProgress * 100)}%`;
-        return `linear-gradient(to right, ${HIGHLIGHT_COLOR} ${pct}, ${rightColor} ${pct})`;
-    }
-
-    protected syncHeaderStyle() {
-        super.syncHeaderStyle();
-
-        setElementHighlighted(this.header, !!this.expanded);
-        this.header.style.backgroundColor = 'transparent';
-
-        if (this.expanded)
-            this.headerContainer.style.background = HIGHLIGHT_COLOR;
-        else
-            this.headerContainer.style.background = this.getLoadingGradient(PANEL_BG_COLOR);
-    }
-
-    private syncFlairs() {
-        const sceneGroupFlairs: Flair[] = [];
-        const currentGroupIndex = this.sceneGroups.indexOf(this.currentSceneGroup);
-        if (currentGroupIndex >= 0) {
-            const flair = ensureFlairIndex(sceneGroupFlairs, currentGroupIndex);
-            flair.background = '#666';
-        }
-        this.sceneGroupList.setFlairs(sceneGroupFlairs);
-
-        const sceneDescFlairs: Flair[] = [];
-        const selectedDescIndex = this.sceneDescs.indexOf(this.currentSceneDesc);
-        if (selectedDescIndex >= 0) {
-            const flair = ensureFlairIndex(sceneDescFlairs, selectedDescIndex);
-            flair.background = this.getLoadingGradient('transparent');
-            flair.fontWeight = 'bold';
-            const pct = `${Math.round(this.loadProgress * 100)}%`;
-            flair.extraHTML = this.loadProgress < 1.0 ? `<span style="font-weight: bold; color: #aaa">${pct}</span>` : ``;
-        }
-        this.sceneDescList.setFlairs(sceneDescFlairs);
-    }
-
-    private selectSceneGroup(i: number) {
-        const sceneGroup = this.sceneGroups[i];
-        this.selectedSceneGroup = sceneGroup as Viewer.SceneGroup;
-        this.syncSceneDescs();
-    }
-
-    private syncSceneDescs() {
-        if (this.selectedSceneGroup)
-            this.setSceneDescs(this.selectedSceneGroup.sceneDescs);
-        else
-            this.setSceneDescs([]);
-    }
-
-    private setSceneDescs(sceneDescs: (string | Viewer.SceneDesc)[]) {
-        this.sceneDescs = sceneDescs;
-        this.sceneDescList.setItems(sceneDescs.map((g): ScrollSelectItem => {
-            if (typeof g === 'string')
-                return { type: ScrollSelectItemType.Header, html: g };
-            else
-                return { type: ScrollSelectItemType.Selectable, name: g.name };
-        }));
-        this.syncFlairs();
-        this.syncVisibility();
+        // this.loadProgress = pct;
+        // this.syncFlairs();
+        // this.syncHeaderStyle();
     }
 }
 
