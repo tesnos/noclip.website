@@ -184,7 +184,6 @@ export class DataFetcher {
     }
 
     public setProgress(): void {
-        console.log('set progress!', this.requests, this.doneRequestCount, this.calcProgress());
         this.progressMeter.setProgress(this.calcProgress());
     }
 

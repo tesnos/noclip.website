@@ -15,6 +15,7 @@ import "reflect-metadata";
 
 // @ts-ignore
 import logoURL from './assets/logo.png';
+import { LightweightOverlay } from './AAA_NewUI/LightweightOverlay';
 
 export const HIGHLIGHT_COLOR = 'rgb(210, 30, 30)';
 export const COOL_BLUE_COLOR = 'rgb(20, 105, 215)';
@@ -2568,6 +2569,7 @@ export class UI {
     private recordingBranding = new RecordingBranding();
 
     public cameraSpeedIndicator = new CameraSpeedIndicator();
+    public lightweightOverlay = new LightweightOverlay();
     private bottomBar = new BottomBar();
     private playPauseButton = new PlayPauseButton();
     private shareButton = new ShareButton();
@@ -2622,6 +2624,8 @@ export class UI {
         this.dragHighlight.style.boxShadow = '0 0 40px 5px white inset';
         this.dragHighlight.style.display = 'none';
         this.dragHighlight.style.pointerEvents = 'none';
+
+        this.toplevel.appendChild(this.lightweightOverlay.elem);
 
         this.floatingPanelContainer = document.createElement('div');
         this.toplevel.appendChild(this.floatingPanelContainer);
@@ -2745,7 +2749,9 @@ export class UI {
     }
 
     private syncBottomRightBarVisibility(): void {
-        this.bottomBar.setVisible(this.shouldBottomRightBarBeVisible());
+        const visible = this.shouldBottomRightBarBeVisible();
+        this.bottomBar.setVisible(visible);
+        this.lightweightOverlay.setVisible(visible);
     }
 
     public setIsDragging(isDragging: boolean): void {
