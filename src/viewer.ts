@@ -259,10 +259,6 @@ export class Viewer {
 
     public setCameraController(cameraController: CameraController) {
         this.cameraController = cameraController;
-
-        if (this.scene !== null && this.scene.adjustCameraController !== undefined)
-            this.scene.adjustCameraController(cameraController);
-
         this.cameraController.camera = this.camera;
         this.cameraController.forceUpdate = true;
     }
