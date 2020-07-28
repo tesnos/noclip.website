@@ -20,6 +20,7 @@ import { CameraController } from '../Camera';
 import { EmptyScene } from '../Scenes_Test';
 import { GfxRenderCache } from '../gfx/render/GfxRenderCache';
 import { makeStaticDataBuffer } from '../gfx/helpers/BufferHelpers';
+import { connectToSceneCollisionEnemyStrongLight } from '../SuperMarioGalaxy/ActorUtil';
 
 interface NJCNK_TriangleStrip {
     vertexCount: number;
@@ -156,10 +157,10 @@ function getVertexTypeSize(type: number) {
              type == NJCNK_CMD.NJCNK_VTX_DS  ||
              type == NJCNK_CMD.NJCNK_VTX_DSA ||
              type == NJCNK_CMD.NJCNK_VTX_DSU ||
-             type == NJCNK_CMD.NJCNK_VTX_N32)
+             type == NJCNK_CMD.NJCNK_VTX_N32 )
              { size = 0x10; }
     else if (type == NJCNK_CMD.NJCNK_VTX_N32_D ||
-             type == NJCNK_CMD.NJCNK_VTX_N_UF)
+             type == NJCNK_CMD.NJCNK_VTX_N_UF  )
              { size = 0x14; }
     else if (type == NJCNK_CMD.NJCNK_VTX_N)
              { size = 0x18; }
@@ -168,7 +169,7 @@ function getVertexTypeSize(type: number) {
              type == NJCNK_CMD.NJCNK_VTX_N_NF  ||
              type == NJCNK_CMD.NJCNK_VTX_N_DS  ||
              type == NJCNK_CMD.NJCNK_VTX_N_DSA ||
-             type == NJCNK_CMD.NJCNK_VTX_N_DSU)
+             type == NJCNK_CMD.NJCNK_VTX_N_DSU )
              { size = 0x1C; }
     else if (type == NJCNK_CMD.NJCNK_VTX_N_SH)
              { size = 0x20; }
@@ -440,25 +441,34 @@ function makeVertexBufferData(v: NJCNK_VertexList): Float32Array {
             buf[j++] = view.getFloat32((l++) * 0x4);
             buf[j++] = view.getFloat32((l++) * 0x4);
 
-            if (chunk.type == NJCNK_CMD.NJCNK_VTX_SH ||
-                chunk.type == NJCNK_CMD.NJCNK_VTX_N_SH)
-                { l++; }
+            if (chunk.type == NJCNK_CMD.NJCNK_VTX_SH   ||
+                chunk.type == NJCNK_CMD.NJCNK_VTX_N_SH )
+            { l++; }
 
             // a_Normal
-            if (chunk.type == NJCNK_CMD.NJCNK_VTX_N     ||
-                chunk.type == NJCNK_CMD.NJCNK_VTX_N_D   ||
-                chunk.type == NJCNK_CMD.NJCNK_VTX_N_DS  ||
-                chunk.type == NJCNK_CMD.NJCNK_VTX_N_DSA ||
-                chunk.type == NJCNK_CMD.NJCNK_VTX_N_DSU ||
-                chunk.type == NJCNK_CMD.NJCNK_VTX_N_NF  ||
-                chunk.type == NJCNK_CMD.NJCNK_VTX_N_SH  ||
-                chunk.type == NJCNK_CMD.NJCNK_VTX_N_UF)
+                 if (chunk.type == NJCNK_CMD.NJCNK_VTX_N     ||
+                     chunk.type == NJCNK_CMD.NJCNK_VTX_N_D   ||
+                     chunk.type == NJCNK_CMD.NJCNK_VTX_N_DS  ||
+                     chunk.type == NJCNK_CMD.NJCNK_VTX_N_DSA ||
+                     chunk.type == NJCNK_CMD.NJCNK_VTX_N_DSU ||
+                     chunk.type == NJCNK_CMD.NJCNK_VTX_N_NF  ||
+                     chunk.type == NJCNK_CMD.NJCNK_VTX_N_SH  ||
+                     chunk.type == NJCNK_CMD.NJCNK_VTX_N_UF  )
             {
                 buf[j++] = view.getFloat32((l++) * 0x4);
                 buf[j++] = view.getFloat32((l++) * 0x4);
                 buf[j++] = view.getFloat32((l++) * 0x4);
             }
-            else if ()
+            // 10-bit normals
+            else if (chunk.type == NJCNK_CMD.NJCNK_VTX_N32    ||
+                     chunk.type == NJCNK_CMD.NJCNK_VTX_N32_D  ||
+                     chunk.type == NJCNK_CMD.NJCNK_VTX_N32_UF )
+            {
+                const nxyz32 = view.getUint32((l++) * 0x04);
+                buf[j++] = (nxyz32 & 0x000003FF) >> 0x00;
+                buf[j++] = (nxyz32 & 0x000FFC00) >> 0x0A;
+                buf[j++] = (nxyz32 & 0x3FF00000) >> 0x14;
+            }
             else
             {
                 buf[j++] = 0.0;
@@ -469,10 +479,98 @@ function makeVertexBufferData(v: NJCNK_VertexList): Float32Array {
             if (chunk.type == NJCNK_CMD.NJCNK_VTX_N_SH) { l++; }
 
             // a_Diffuse
-            if ()
+            // RGBA8888
+                 if (chunk.type == NJCNK_CMD.NJCNK_VTX_D     ||
+                     chunk.type == NJCNK_CMD.NJCNK_VTX_N_D   ||
+                     chunk.type == NJCNK_CMD.NJCNK_VTX_N32_D )
             {
-
+                buf[j++] = view.getUint32((l++) * 0x04);
             }
+            // RGB565
+            else if (chunk.type == NJCNK_CMD.NJCNK_VTX_DS   ||
+                     chunk.type == NJCNK_CMD.NJCNK_VTX_N_DS )
+            {
+                const rgb565 = view.getUint16(l * 0x04);
+                const r = ((rgb565 & 0xF800) >> 0xB) << 0x3;
+                const g = ((rgb565 & 0x07E0) >> 0x5) << 0x2;
+                const b = ((rgb565 & 0x001F) >> 0x0) << 0x3;
+                buf[j++] = (r << 0x18) | (g << 0x10) | (b << 0x08) | (0xFF << 0x00);
+            }
+            // RGBA4444
+            else if (chunk.type == NJCNK_CMD.NJCNK_VTX_DSA   ||
+                     chunk.type == NJCNK_CMD.NJCNK_VTX_N_DSA )
+            {
+                const rgb565 = view.getUint16(l * 0x04);
+                const r = ((rgb565 & 0xF000) >> 0xC) << 0x4;
+                const g = ((rgb565 & 0x0F00) >> 0x8) << 0x4;
+                const b = ((rgb565 & 0x00F0) >> 0x4) << 0x4;
+                const a = ((rgb565 & 0x000F) >> 0x0) << 0x4;
+                buf[j++] = (r << 0x18) | (g << 0x10) | (b << 0x08) | (a << 0x00);
+            }
+            // IN16
+            else if (chunk.type == NJCNK_CMD.NJCNK_VTX_DSU   ||
+                     chunk.type == NJCNK_CMD.NJCNK_VTX_N_DSU )
+            {
+                console.log("Intensity-based vertex lighting was used, what does this mean?");
+                buf[j++] = 0.0;
+            }
+            else
+            {
+                buf[j++] = 0.0;
+            }
+
+            // a_Specular
+            // RGB565
+                 if (chunk.type == NJCNK_CMD.NJCNK_VTX_DS    ||
+                     chunk.type == NJCNK_CMD.NJCNK_VTX_N_DS  ||
+                     chunk.type == NJCNK_CMD.NJCNK_VTX_DSA   ||
+                     chunk.type == NJCNK_CMD.NJCNK_VTX_N_DSA )
+            {
+                const rgb565 = view.getUint16(l * 0x04 + 0x02);
+                const r = ((rgb565 & 0xF800) >> 0xB) << 0x3;
+                const g = ((rgb565 & 0x07E0) >> 0x5) << 0x2;
+                const b = ((rgb565 & 0x001F) >> 0x0) << 0x3;
+                buf[j++] = (r << 0x18) | (g << 0x10) | (b << 0x08) | (0xFF << 0x00);
+                l++;
+            }
+            // IN16
+            else if (chunk.type == NJCNK_CMD.NJCNK_VTX_DSU   ||
+                     chunk.type == NJCNK_CMD.NJCNK_VTX_N_DSU )
+            {
+                buf[j++] = 0.0;
+                l++;
+            }
+            else
+            {
+                buf[j++] = 0.0;
+            }
+
+            // a_UserFlags
+            if (chunk.type == NJCNK_CMD.NJCNK_VTX_UF     ||
+                chunk.type == NJCNK_CMD.NJCNK_VTX_N_UF   ||
+                chunk.type == NJCNK_CMD.NJCNK_VTX_N32_UF )
+            {
+                buf[j++] = view.getUint32((l++) * 0x04);
+            }
+            else
+            {
+                buf[j++] = 0.0;
+            }
+
+            // a_NinjaFlags
+            if (chunk.type == NJCNK_CMD.NJCNK_VTX_NF   ||
+                chunk.type == NJCNK_CMD.NJCNK_VTX_N_NF )
+            {
+                buf[j++] = view.getUint32((l++) * 0x04);
+            }
+            else
+            {
+                buf[j++] = 0.0;
+            }
+
+            // a_TexCoord
+            buf[j++] = 0.0;
+            buf[j++] = 0.0;
         }
     }
     return buf;
@@ -502,17 +600,17 @@ class RenderData {
         this.indexBuffer = makeStaticDataBuffer(device, GfxBufferUsage.INDEX, indexBufferData.buffer);
 
         const vertexAttributeDescriptors: GfxVertexAttributeDescriptor[] = [
-            { location: NJCNKProgram.a_Position  , bufferIndex: 0, format: GfxFormat.F32_RGB , bufferByteOffset: 0x03*0x4, },
-            { location: NJCNKProgram.a_Normal    , bufferIndex: 0, format: GfxFormat.F32_RGB , bufferByteOffset: 0x00*0x4, },
-            { location: NJCNKProgram.a_Diffuse   , bufferIndex: 0, format: GfxFormat.F32_RGBA, bufferByteOffset: 0x06*0x4, },
-            { location: NJCNKProgram.a_Specular  , bufferIndex: 0, format: GfxFormat.F32_RGBA, bufferByteOffset: 0x0A*0x4, },
-            { location: NJCNKProgram.a_UserFlags , bufferIndex: 0, format: GfxFormat.F32_R   , bufferByteOffset: 0x0E*0x4, },
-            { location: NJCNKProgram.a_NinjaFlags, bufferIndex: 0, format: GfxFormat.F32_R   , bufferByteOffset: 0x0F*0x4, },
-            { location: NJCNKProgram.a_TexCoord  , bufferIndex: 0, format: GfxFormat.F32_RG  , bufferByteOffset: 0x10*0x4, },
+            { location: NJCNKProgram.a_Position  , bufferIndex: 0, format: GfxFormat.F32_RGB , bufferByteOffset: 0x0*0x4, },
+            { location: NJCNKProgram.a_Normal    , bufferIndex: 0, format: GfxFormat.F32_RGB , bufferByteOffset: 0x3*0x4, },
+            { location: NJCNKProgram.a_Diffuse   , bufferIndex: 0, format: GfxFormat.F32_R   , bufferByteOffset: 0x6*0x4, },
+            { location: NJCNKProgram.a_Specular  , bufferIndex: 0, format: GfxFormat.F32_R   , bufferByteOffset: 0x7*0x4, },
+            { location: NJCNKProgram.a_UserFlags , bufferIndex: 0, format: GfxFormat.F32_R   , bufferByteOffset: 0x8*0x4, },
+            { location: NJCNKProgram.a_NinjaFlags, bufferIndex: 0, format: GfxFormat.F32_R   , bufferByteOffset: 0x9*0x4, },
+            { location: NJCNKProgram.a_TexCoord  , bufferIndex: 0, format: GfxFormat.F32_RG  , bufferByteOffset: 0xA*0x4, },
         ];
 
         const vertexBufferDescriptors: GfxInputLayoutBufferDescriptor[] = [
-            { byteStride: 0x12*0x4, frequency: GfxVertexBufferFrequency.PER_VERTEX, },
+            { byteStride: 0xC*0x4, frequency: GfxVertexBufferFrequency.PER_VERTEX, },
         ];
 
         this.inputLayout = device.createInputLayout({
