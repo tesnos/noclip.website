@@ -2,17 +2,22 @@ import * as Viewer from '../viewer';
 import * as BYML from '../byml';
 import * as MIO0 from '../Common/Compression/MIO0';
 import * as F3DEX from "../BanjoKazooie/f3dex";
+import * as RDP from '../Common/N64/RDP';
 
 import { GfxDevice, GfxRenderPass, GfxCullMode, GfxProgram, GfxMegaStateDescriptor, makeTextureDescriptor2D, GfxFormat, GfxSampler, GfxTexture, GfxTexFilterMode, GfxMipFilterMode, GfxHostAccessPass, GfxBindingLayoutDescriptor, GfxBlendMode, GfxBlendFactor, GfxBuffer, GfxInputLayout, GfxInputState, GfxBufferUsage, GfxBufferFrequencyHint, GfxVertexAttributeDescriptor, GfxInputLayoutBufferDescriptor, GfxVertexBufferFrequency } from '../gfx/platform/GfxPlatform';
 import { GfxRenderHelper } from '../gfx/render/GfxRenderGraph';
+import { GfxRenderCache } from '../gfx/render/GfxRenderCache';
 import { GfxRenderInstManager, makeSortKey, GfxRendererLayer, setSortKeyDepth, getSortKeyLayer, executeOnPass } from "../gfx/render/GfxRenderer";
 import { BasicRenderTarget, standardFullClearRenderPassDescriptor, depthClearRenderPassDescriptor } from '../gfx/helpers/RenderTargetHelpers';
-import { TextureMapping, FakeTextureHolder } from '../TextureHolder';
+import { TextureMapping, FakeTextureHolder, TextureHolder } from '../TextureHolder';
 import { computeViewMatrixSkybox, computeViewMatrix, CameraController } from '../Camera';
 import { SceneContext } from '../SceneBase';
-import { F3DEX_Program, textureToCanvas } from '../BanjoKazooie/render';
+import { F3DEX_Program, textureToCanvas, GeometryRenderer, RenderData, GeometryData } from '../BanjoKazooie/render';
+import { Geometry, GeoNode, SelectorNode, SortNode, BKGeoNode, GeoContext, setMipmapTiles } from '../BanjoKazooie/geo';
 import ArrayBufferSlice from '../ArrayBufferSlice';
-import { readString } from '../util';
+import { readString, hexzero } from '../util';
+import { ImageFormat, ImageSize, TexCM } from "../Common/N64/Image";
+import * as DownloadUtils from "../DownloadUtils";
 
 
 const pathBase = `MarioKart64`;
@@ -24,13 +29,35 @@ const bindingLayouts: GfxBindingLayoutDescriptor[] = [
     { numUniformBuffers: 3, numSamplers: 2, },
 ];
 
+class MK64GeoNode implements GeoNode {
+    public rspOutput: F3DEX.RSPOutput | null = null;
+    public children: GeoNode[] = [];
+    public nodeData: SelectorNode | SortNode | null = null;
+    public rspState: F3DEX.RSPState;
+
+    constructor(public boneIndex: number, public parentIndex: number, context: GeoContext<BKGeoNode>) {
+        this.rspState = new F3DEX.RSPState(context.segmentBuffers, context.sharedOutput);
+        // G_TF_BILERP
+        this.rspState.gDPSetOtherModeH(12, 2, 0x2000);
+        this.rspState.gDPSetOtherModeH(
+            RDP.OtherModeH_Layout.G_MDSFT_CYCLETYPE, 2,
+            RDP.OtherModeH_CycleType.G_CYC_2CYCLE << RDP.OtherModeH_Layout.G_MDSFT_CYCLETYPE,
+        );
+        setMipmapTiles(this.rspState, TexCM.WRAP);
+    }
+
+    public runDL(addr: number): void {
+        F3DEX.runDL_F3DEX(this.rspState, addr);
+    }
+}
+
 class MK64Renderer implements Viewer.SceneGfx {
+    public geoRenderers: GeometryRenderer[] = [];
+    public geoDatas: RenderData[] = [];
     public renderHelper: GfxRenderHelper;
     public renderTarget = new BasicRenderTarget();
 
-    public textureHolder = new FakeTextureHolder([]);
-
-    constructor(device: GfxDevice) {
+    constructor(device: GfxDevice, public textureHolder: TextureHolder<any>) {
         this.renderHelper = new GfxRenderHelper(device);
     }
 
@@ -70,6 +97,7 @@ class MK64Renderer implements Viewer.SceneGfx {
     public destroy(device: GfxDevice): void {
         this.renderHelper.destroy(device);
         this.renderTarget.destroy(device);
+        this.textureHolder.destroy(device);
     }
 }
 
@@ -81,6 +109,7 @@ class CourseContext {
 type CourseArc = {
     Name: number,
     Seg6: ArrayBufferSlice,
+    Seg7: ArrayBufferSlice,
     Vtx: ArrayBufferSlice,
     TexRef: ArrayBufferSlice,
     PackDL_Off: number,
@@ -91,24 +120,31 @@ type CommonArc = {
     TexData: ArrayBufferSlice,
 }
 
-function loadTextures(arc: CourseArc, block: ArrayBufferSlice) {
-    const srcView = block.createDataView();
+function loadTextures(arc: CourseArc, texblock: ArrayBufferSlice) {
     const refView = arc.TexRef.createDataView();
-    const outView = CourseContext.segmentBuffers[0x05].createDataView();
+    //DownloadUtils.downloadBufferSlice("ref.bin", arc.TexRef);
+    const outBuf = new ArrayBufferSlice(new ArrayBuffer(0x40000));
+    const outView = outBuf.createDataView();
     let offset = 0;
 
     for (let i = 0; i < refView.byteLength / 0x10; i++) {
-        const texData = MIO0.decompress(block.slice(refView.getUint32((i * 0x10), false))).createDataView();
+        const location = refView.getUint32((i * 0x10), false) & 0x00FFFFFF;
+        if (location === 0x00) { break; }
+        console.log(offset);
+        const texData = MIO0.decompress(texblock.slice(location)).createDataView();
         const texSize = refView.getUint32((i * 0x10) + 0x08, false);
         for (let j = 0; j < texData.byteLength; j++) {
             outView.setUint8(offset + j, texData.getUint8(j));
         }
         offset += texSize / 2;
     }
+
+    CourseContext.segmentBuffers[0x05] = outBuf;
 }
 
 class SceneDesc implements Viewer.SceneDesc {
     public id: string;
+    public gfxCache = new GfxRenderCache();
     constructor(public levelID: number, public name: string) {
         this.id = `${levelID}`;
     }
@@ -159,27 +195,31 @@ class SceneDesc implements Viewer.SceneDesc {
             sceneRenderer.textureHolder.viewerTextures.push(textureToCanvas(sharedOutput.textureCache.textures[i]));
         */
         const dataFetcher = context.dataFetcher;
-        const courseArcData = await dataFetcher.fetchData(`${pathBase}/${this.id}_arc.crg1`);
+        const courseArcData = await dataFetcher.fetchData(`${pathBase}/${hexzero(this.levelID, 2).toUpperCase()}_arc.crg1`);
         const courseArc: CourseArc = BYML.parse(courseArcData, BYML.FileType.CRG1);
         const commonArcData = await dataFetcher.fetchData(`${pathBase}/common_arc.crg1`);
         const commonArc: CommonArc = BYML.parse(commonArcData, BYML.FileType.CRG1);
 
-        const renderer = new MK64Renderer(device);
+        const viewerTextures: Viewer.Texture[] = [];
+        const fakeTextureHolder = new FakeTextureHolder(viewerTextures);
+        const renderer = new MK64Renderer(device, fakeTextureHolder);
 
-        const sharedOutput = new F3DEX.RSPSharedOutput();
-        const segmentBuffers: ArrayBufferSlice[] = [];
-        segmentBuffers[0x01] = vertexData;
-        segmentBuffers[0x02] = textureData;
-        segmentBuffers[0x09] = f3dexData;
-        segmentBuffers[0x0B] = textureData;
-        segmentBuffers[0x0C] = textureData;
-        segmentBuffers[0x0D] = textureData;
-        segmentBuffers[0x0E] = textureData;
-        segmentBuffers[0x0F] = textureData;
+        CourseContext.sharedOutput = new F3DEX.RSPSharedOutput();
+        CourseContext.segmentBuffers = [];
+        CourseContext.segmentBuffers[0x04] = courseArc.Vtx;
+        loadTextures(courseArc, commonArc.TexData);
+        CourseContext.segmentBuffers[0x06] = courseArc.Seg6;
+        CourseContext.segmentBuffers[0x07] = courseArc.Seg7;
 
-        var rspState = new F3DEX.RSPState(segmentBuffers, sharedOutput);
+        var rspState = new F3DEX.RSPState(CourseContext.segmentBuffers, CourseContext.sharedOutput);
 
-        renderer.textureHolder.addTextures(device, parseTextureBlock(commonArc.TexData));
+        for (let i = 0; i < CourseContext.sharedOutput.textureCache.textures.length; i++)
+            viewerTextures.push(textureToCanvas(CourseContext.sharedOutput.textureCache.textures[i]));
+        
+        const geoData = new GeometryData(device, this.gfxCache, geo);
+        renderer.geoDatas.push(geoData.renderData);
+        const geoRenderer = new GeometryRenderer(device, geoData);
+        renderer.geoRenderers.push(geoRenderer);
 
         return renderer;
     }

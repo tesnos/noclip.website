@@ -314,7 +314,7 @@ export interface SoftwareLightingEffect {
 
 type nodeBuilder<N extends GeoNode> = (bone: number, parent: number, ctx: GeoContext<N>) => N;
 
-interface GeoContext<N extends GeoNode> {
+export interface GeoContext<N extends GeoNode> {
     buffer: ArrayBufferSlice;
 
     segmentBuffers: ArrayBufferSlice[];
@@ -455,7 +455,7 @@ function popGeoNode<N extends GeoNode>(context: GeoContext<N>): N {
     return geoNode;
 }
 
-function setMipmapTiles(rspState: F3DEX.RSPState, cm: TexCM): void {
+export function setMipmapTiles(rspState: F3DEX.RSPState, cm: TexCM): void {
     rspState.gDPSetTile(ImageFormat.G_IM_FMT_RGBA, ImageSize.G_IM_SIZ_16b, 8, 0, 2, 0, cm, 5, 0, cm, 5, 0);
     rspState.gDPSetTileSize(2, 0, 0, 0x7C, 0x7C);
     rspState.gDPSetTile(ImageFormat.G_IM_FMT_RGBA, ImageSize.G_IM_SIZ_16b, 8, 0x100, 3, 0, cm, 4, 0, cm, 4, 0);

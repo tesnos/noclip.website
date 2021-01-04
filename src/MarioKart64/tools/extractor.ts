@@ -33,6 +33,7 @@ function extractCourse(romData: ArrayBufferSlice, id: number) {
     const crg1 = {
         Name: id,
         Seg6: MIO0.decompress(romData.slice(seg6_start, seg6_end)),
+        Seg7: romData.slice(vtx_start + (packdl_off & 0x00FFFFFF), vtx_end),
         Vtx: MIO0.decompress(romData.slice(vtx_start, vtx_end)),
         TexRef: romData.slice(texref_start, texref_end),
         PackDL_Off: packdl_off,
