@@ -64,6 +64,7 @@ import * as Scenes_Portal from './SourceEngine/Scenes_Portal';
 import * as Scenes_BeetleAdventureRacing from './BeetleAdventureRacing/Scenes';
 import * as Scenes_TheWitness from './TheWitness/Scenes_TheWitness';
 import * as Scenes_FFX from './FinalFantasyX/scenes';
+import * as Scenes_MarioKart64 from './MarioKart64/scenes';
 
 import { DroppedFileSceneDesc, traverseFileSystemDataTransfer } from './Scenes_FileDrops';
 
@@ -126,6 +127,7 @@ const sceneGroups = [
     Scenes_BanjoKazooie.sceneGroup,
     Scenes_BanjoTooie.sceneGroup,
     Scenes_BeetleAdventureRacing.sceneGroup,
+    Scenes_MarioKart64.sceneGroup,
     Scenes_PaperMario64.sceneGroup,
     Scenes_Pilotwings64.sceneGroup,
     Scenes_PokemonSnap.sceneGroup,
